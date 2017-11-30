@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2010 Haifeng Li
- *   
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
@@ -18,7 +18,6 @@ package smile.classification;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.Callable;
-import java.util.Map.Entry;
 
 import smile.data.Attribute;
 import smile.data.NominalAttribute;
@@ -50,9 +49,9 @@ import smile.util.MulticoreExecutor;
  * is another popular measure, used by the ID3, C4.5 and C5.0 algorithms.
  * Information gain is based on the concept of entropy used in information
  * theory. For categorical variables with different number of levels, however,
- * information gain are biased in favor of those attributes with more levels. 
+ * information gain are biased in favor of those attributes with more levels.
  * Instead, one may employ the information gain ratio, which solves the drawback
- * of information gain. 
+ * of information gain.
  * <p>
  * Classification and Regression Tree techniques have a number of advantages
  * over many of those alternative techniques.
@@ -89,15 +88,16 @@ import smile.util.MulticoreExecutor;
  * <p>
  * Some techniques such as bagging, boosting, and random forest use more than
  * one decision tree for their analysis.
- * 
+ *
+ * @author Haifeng Li
  * @see AdaBoost
  * @see GradientTreeBoost
  * @see RandomForest
- * 
- * @author Haifeng Li
  */
 public class DecisionTree implements SoftClassifier<double[]>, Serializable {
     private static final long serialVersionUID = 1L;
+    private final double[] baselineP;
+    private final int[] labels;
 
     /**
      * The attributes of independent variable.
@@ -168,57 +168,60 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
         /**
          * Constructor.
-         * 
+         *
          * @param maxNodes the maximum number of leaf nodes in the tree.
          */
         public Trainer(int maxNodes) {
             if (maxNodes < 2) {
                 throw new IllegalArgumentException("Invalid maximum number of leaf nodes: " + maxNodes);
             }
-            
+
             this.maxNodes = maxNodes;
         }
-        
+
         /**
          * Constructor.
-         * 
+         *
          * @param attributes the attributes of independent variable.
-         * @param maxNodes the maximum number of leaf nodes in the tree.
+         * @param maxNodes   the maximum number of leaf nodes in the tree.
          */
         public Trainer(Attribute[] attributes, int maxNodes) {
             super(attributes);
-            
+
             if (maxNodes < 2) {
                 throw new IllegalArgumentException("Invalid maximum number of leaf nodes: " + maxNodes);
             }
-            
+
             this.maxNodes = maxNodes;
         }
-        
+
         /**
          * Sets the splitting rule.
+         *
          * @param rule the splitting rule.
          */
         public Trainer setSplitRule(SplitRule rule) {
             this.rule = rule;
             return this;
         }
-        
+
         /**
          * Sets the maximum number of leaf nodes in the tree.
+         *
          * @param maxNodes the maximum number of leaf nodes in the tree.
          */
         public Trainer setMaxNodes(int maxNodes) {
             if (maxNodes < 2) {
                 throw new IllegalArgumentException("Invalid maximum number of leaf nodes: " + maxNodes);
             }
-            
+
             this.maxNodes = maxNodes;
             return this;
         }
 
         /**
          * Sets the minimum size of leaf nodes.
+         *
          * @param nodeSize the minimum size of leaf nodes..
          */
         public Trainer setNodeSize(int nodeSize) {
@@ -235,7 +238,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
             return new DecisionTree(attributes, x, y, maxNodes, nodeSize, rule);
         }
     }
-    
+
     /**
      * The criterion to choose variable to split instances.
      */
@@ -257,9 +260,13 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
         /**
          * Classification error.
          */
-        CLASSIFICATION_ERROR
+        CLASSIFICATION_ERROR,
+
+        WEIGHTED_ENTROPY,
+
+        WEIGHTED_CLASSIFICATION_ERROR
     }
-    
+
     /**
      * Classification tree node.
      */
@@ -461,7 +468,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
                     }
                 }
             }
-            
+
             // Since all instances have same label, stop splitting.
             if (pure) {
                 return false;
@@ -486,13 +493,13 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
             }
 
             double impurity = impurity(count, n);
-            
+
             int p = attributes.length;
             int[] variables = new int[p];
             for (int i = 0; i < p; i++) {
                 variables[i] = i;
             }
-            
+
             if (mtry < p) {
                 Math.permutate(variables);
 
@@ -540,14 +547,15 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
             return (node.splitFeature != -1);
         }
-        
+
         /**
          * Finds the best split cutoff for attribute j at the current node.
-         * @param n the number instances in this node.
-         * @param count the sample count in each class.
+         *
+         * @param n          the number instances in this node.
+         * @param count      the sample count in each class.
          * @param falseCount an array to store sample count in each class for false child node.
-         * @param impurity the impurity of this node.
-         * @param j the attribute to split on.
+         * @param impurity   the impurity of this node.
+         * @param j          the attribute to split on.
          */
         public Node findBestSplit(int n, int[] count, int[] falseCount, double impurity, int j) {
             Node splitNode = new Node();
@@ -619,6 +627,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
                         int trueLabel = Math.whichMax(trueCount);
                         int falseLabel = Math.whichMax(falseCount);
+
                         double gain = impurity - (double) tc / n * impurity(trueCount, tc) - (double) fc / n * impurity(falseCount, fc);
 
                         if (gain > splitNode.splitScore) {
@@ -641,7 +650,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
             return splitNode;
         }
-        
+
         /**
          * Split the node into two children nodes. Returns true if split success.
          */
@@ -710,7 +719,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
             node.trueChild = new Node(node.trueChildOutput, trueChildPosteriori);
             node.falseChild = new Node(node.falseChildOutput, falseChildPosteriori);
-            
+
             TrainNode trueChild = new TrainNode(node.trueChild, x, y, trueSamples);
             if (tc > nodeSize && trueChild.findBestSplit()) {
                 if (nextSplits != null) {
@@ -730,16 +739,17 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
             }
 
             importance[node.splitFeature] += node.splitScore;
-            
+
             return true;
         }
     }
 
     /**
      * Returns the impurity of a node.
+     *
      * @param count the sample count in each class.
-     * @param n the number of samples in the node.
-     * @return  the impurity of a node
+     * @param n     the number of samples in the node.
+     * @return the impurity of a node
      */
     private double impurity(int[] count, int n) {
         double impurity = 0.0;
@@ -763,11 +773,33 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
                     }
                 }
                 break;
+
+            case WEIGHTED_ENTROPY:
+                impurity = 0;
+                for (int i = 0; i < count.length; i++) {
+                    if (count[i] > 0) {
+                        double wc = 1 / (baselineP[i] * count.length);
+                        double p = (double) count[i] / n;
+                        impurity -= wc * p * Math.log2(p * wc);
+                    }
+                }
+                break;
+
             case CLASSIFICATION_ERROR:
                 impurity = 0;
                 for (int i = 0; i < count.length; i++) {
                     if (count[i] > 0) {
-                        impurity = Math.max(impurity, count[i] / (double)n);
+                        impurity = Math.max(impurity, count[i] / (double) n);
+                    }
+                }
+                impurity = Math.abs(1 - impurity);
+                break;
+
+            case WEIGHTED_CLASSIFICATION_ERROR:
+                for (int i = 0; i < count.length; i++) {
+                    double wc = 1 / (baselineP[i] * count.length);
+                    if (count[i] > 0) {
+                        impurity = wc * count[i] / (double) n;
                     }
                 }
                 impurity = Math.abs(1 - impurity);
@@ -776,13 +808,13 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
         return impurity;
     }
-    
+
     /**
      * Constructor. Learns a classification tree with (most) given number of
      * leaves. All attributes are assumed to be numeric.
      *
-     * @param x the training instances. 
-     * @param y the response variable.
+     * @param x        the training instances.
+     * @param y        the response variable.
      * @param maxNodes the maximum number of leaf nodes in the tree.
      */
     public DecisionTree(double[][] x, int[] y, int maxNodes) {
@@ -793,10 +825,10 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a classification tree with (most) given number of
      * leaves. All attributes are assumed to be numeric.
      *
-     * @param x the training instances.
-     * @param y the response variable.
+     * @param x        the training instances.
+     * @param y        the response variable.
      * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param rule the splitting rule.
+     * @param rule     the splitting rule.
      */
     public DecisionTree(double[][] x, int[] y, int maxNodes, SplitRule rule) {
         this(null, x, y, maxNodes, 1, rule);
@@ -806,24 +838,24 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a classification tree with (most) given number of
      * leaves. All attributes are assumed to be numeric.
      *
-     * @param x the training instances. 
-     * @param y the response variable.
+     * @param x        the training instances.
+     * @param y        the response variable.
      * @param maxNodes the maximum number of leaf nodes in the tree.
      * @param nodeSize the minimum size of leaf nodes.
-     * @param rule the splitting rule.
+     * @param rule     the splitting rule.
      */
     public DecisionTree(double[][] x, int[] y, int maxNodes, int nodeSize, SplitRule rule) {
         this(null, x, y, maxNodes, nodeSize, rule);
     }
-    
+
     /**
      * Constructor. Learns a classification tree with (most) given number of
      * leaves.
-     * 
+     *
      * @param attributes the attribute properties.
-     * @param x the training instances. 
-     * @param y the response variable.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
      */
     public DecisionTree(Attribute[] attributes, double[][] x, int[] y, int maxNodes) {
         this(attributes, x, y, maxNodes, SplitRule.GINI);
@@ -834,10 +866,10 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
      * leaves.
      *
      * @param attributes the attribute properties.
-     * @param x the training instances.
-     * @param y the response variable.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param rule the splitting rule.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
+     * @param rule       the splitting rule.
      */
     public DecisionTree(Attribute[] attributes, double[][] x, int[] y, int maxNodes, SplitRule rule) {
         this(attributes, x, y, maxNodes, 1, x[0].length, rule, null, null);
@@ -846,33 +878,42 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
     /**
      * Constructor. Learns a classification tree with (most) given number of
      * leaves.
-     * 
+     *
      * @param attributes the attribute properties.
-     * @param x the training instances. 
-     * @param y the response variable.
-     * @param nodeSize the minimum size of leaf nodes.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param rule the splitting rule.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param nodeSize   the minimum size of leaf nodes.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
+     * @param rule       the splitting rule.
      */
     public DecisionTree(Attribute[] attributes, double[][] x, int[] y, int maxNodes, int nodeSize, SplitRule rule) {
         this(attributes, x, y, maxNodes, nodeSize, x[0].length, rule, null, null);
     }
 
+    public static double[] getClassProbs(int[] Y, int[] labels) {
+        double[] counts = new double[labels.length];
+        for (int y : Y) {
+            counts[Arrays.binarySearch(labels, y)] += 1;
+        }
+        return Arrays.stream(counts).map(y -> y / Y.length).toArray();
+    }
+
     /**
      * Constructor. Learns a classification tree for AdaBoost and Random Forest.
+     *
      * @param attributes the attribute properties.
-     * @param x the training instances. 
-     * @param y the response variable.
-     * @param nodeSize the minimum size of leaf nodes.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param mtry the number of input variables to pick to split on at each
-     * node. It seems that sqrt(p) give generally good performance, where p
-     * is the number of variables.
-     * @param rule the splitting rule.
-     * @param order the index of training values in ascending order. Note
-     * that only numeric attributes need be sorted.
-     * @param samples the sample set of instances for stochastic learning.
-     * samples[i] is the number of sampling for instance i.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param nodeSize   the minimum size of leaf nodes.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
+     * @param mtry       the number of input variables to pick to split on at each
+     *                   node. It seems that sqrt(p) give generally good performance, where p
+     *                   is the number of variables.
+     * @param rule       the splitting rule.
+     * @param order      the index of training values in ascending order. Note
+     *                   that only numeric attributes need be sorted.
+     * @param samples    the sample set of instances for stochastic learning.
+     *                   samples[i] is the number of sampling for instance i.
      */
     public DecisionTree(Attribute[] attributes, double[][] x, int[] y, int maxNodes, int nodeSize, int mtry, SplitRule rule, int[] samples, int[][] order) {
         if (x.length != y.length) {
@@ -892,24 +933,25 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
         }
 
         // class label set.
-        int[] labels = Math.unique(y);
+        labels = Math.unique(y);
         Arrays.sort(labels);
-        
+
         for (int i = 0; i < labels.length; i++) {
             if (labels[i] < 0) {
-                throw new IllegalArgumentException("Negative class label: " + labels[i]); 
+                throw new IllegalArgumentException("Negative class label: " + labels[i]);
             }
-            
-            if (i > 0 && labels[i] - labels[i-1] > 1) {
-                throw new IllegalArgumentException("Missing class: " + labels[i]+1);                 
+
+            if (i > 0 && labels[i] - labels[i - 1] > 1) {
+                throw new IllegalArgumentException("Missing class: " + labels[i] + 1);
             }
         }
 
         k = labels.length;
         if (k < 2) {
-            throw new IllegalArgumentException("Only one class.");            
+            throw new IllegalArgumentException("Only one class.");
         }
-        
+        baselineP = getClassProbs(y, labels);
+
         if (attributes == null) {
             int p = x[0].length;
             attributes = new Attribute[p];
@@ -917,14 +959,14 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
                 attributes[i] = new NumericAttribute("V" + (i + 1));
             }
         }
-                
+
         this.attributes = attributes;
         this.mtry = mtry;
         this.nodeSize = nodeSize;
         this.maxNodes = maxNodes;
         this.rule = rule;
         importance = new double[attributes.length];
-        
+
         if (order != null) {
             this.order = order;
         } else {
@@ -966,7 +1008,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
             posteriori[i] = (double) count[i] / n;
         }
         root = new Node(Math.whichMax(count), posteriori);
-        
+
         TrainNode trainRoot = new TrainNode(root, x, y, samples);
         // Now add splits to the tree until max tree size is reached
         if (trainRoot.findBestSplit()) {
@@ -998,7 +1040,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
     public double[] importance() {
         return importance;
     }
-    
+
     @Override
     public int predict(double[] x) {
         return root.predict(x);
@@ -1018,7 +1060,8 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
     /**
      * Returns the maximum depth" of the tree -- the number of
      * nodes along the longest path from the root node
-     * down to the farthest leaf node.*/
+     * down to the farthest leaf node.
+     */
     public int maxDepth() {
         return maxDepth(root);
     }
@@ -1043,6 +1086,7 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
         int parent;
         int id;
         Node node;
+
         DotNode(int parent, int id, Node node) {
             this.parent = parent;
             this.id = id;
