@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2010 Haifeng Li
- *   
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
@@ -16,19 +16,18 @@
 package smile.classification;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Callable;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import smile.data.Attribute;
 import smile.data.NumericAttribute;
 import smile.math.Math;
+import smile.math.Random;
 import smile.util.MulticoreExecutor;
 import smile.util.SmileUtils;
-import smile.validation.Accuracy;
-import smile.validation.ClassificationMeasure;
+import smile.validation.*;
 
 /**
  * Random forest for classification. Random forest is an ensemble classifier
@@ -40,12 +39,12 @@ import smile.validation.ClassificationMeasure;
  * <ol>
  * <li> If the number of cases in the training set is N, randomly sample N cases
  * with replacement from the original data. This sample will
- * be the training set for growing the tree. 
+ * be the training set for growing the tree.
  * <li> If there are M input variables, a number m &lt;&lt; M is specified such
  * that at each node, m variables are selected at random out of the M and
  * the best split on these m is used to split the node. The value of m is
- * held constant during the forest growing. 
- * <li> Each tree is grown to the largest extent possible. There is no pruning. 
+ * held constant during the forest growing.
+ * <li> Each tree is grown to the largest extent possible. There is no pruning.
  * </ol>
  * The advantages of random forest are:
  * <ul>
@@ -67,12 +66,20 @@ import smile.validation.ClassificationMeasure;
  * levels. Therefore, the variable importance scores from random forest are
  * not reliable for this type of data.
  * </ul>
- * 
+ *
  * @author Haifeng Li
  */
 public class RandomForest implements SoftClassifier<double[]>, Serializable {
     private static final long serialVersionUID = 1L;
     private static final Logger logger = LoggerFactory.getLogger(RandomForest.class);
+    private final Attribute[] attributes;
+    private final int maxNodes;
+    private final int nodeSize;
+    private final int mtry;
+    private final double subsample;
+    private final DecisionTree.SplitRule rule;
+    private final double[] classWeight;
+    private final int[] labels;
 
     /**
      * Decision tree wrapper with a weight. Currently, the weight is the accuracy of
@@ -81,12 +88,19 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      */
     static class Tree implements Serializable {
         DecisionTree tree;
+
+        public double getWeight() {
+            return weight;
+        }
+
         double weight;
+
         Tree(DecisionTree tree, double weight) {
             this.tree = tree;
             this.weight = weight;
         }
     }
+
     /**
      * Forest of decision trees. The second value is the accuracy of
      * tree on the OOB samples, which can be used a weight when aggregating
@@ -113,155 +127,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      */
     private double[] importance;
 
-    /**
-     * Trainer for random forest classifiers.
-     */
-    public static class Trainer extends ClassifierTrainer<double[]> {
-        /**
-         * The number of trees.
-         */
-        private int ntrees = 500;
-        /**
-         * The splitting rule.
-         */
-        private DecisionTree.SplitRule rule = DecisionTree.SplitRule.GINI;
-        /**
-         * The number of random selected features to be used to determine the decision
-         * at a node of the tree. floor(sqrt(dim)) seems to give generally good performance,
-         * where dim is the number of variables.        
-         */
-        private int mtry = -1;
-        /**
-         * The minimum size of leaf nodes.
-         */
-        private int nodeSize = 1;
-        /**
-         * The maximum number of leaf nodes.
-         */
-        private int maxNodes = 100;
-        /**
-         * The sampling rate.
-         */
-        private double subsample = 1.0;
 
-        /**
-         * Default constructor of 500 trees.
-         */
-        public Trainer() {
-
-        }
-
-        /**
-         * Constructor.
-         * 
-         * @param ntrees the number of trees.
-         */
-        public Trainer(int ntrees) {
-            if (ntrees < 1) {
-                throw new IllegalArgumentException("Invalid number of trees: " + ntrees);
-            }
-
-            this.ntrees = ntrees;
-        }
-
-        /**
-         * Constructor.
-         *
-         * @param attributes the attributes of independent variable.
-         * @param ntrees the number of trees.
-         */
-        public Trainer(Attribute[] attributes, int ntrees) {
-            super(attributes);
-
-            if (ntrees < 1) {
-                throw new IllegalArgumentException("Invalid number of trees: " + ntrees);
-            }
-
-            this.ntrees = ntrees;
-        }
-
-        /**
-         * Sets the splitting rule.
-         * @param rule the splitting rule.
-         */
-        public Trainer setSplitRule(DecisionTree.SplitRule rule) {
-            this.rule = rule;
-            return this;
-        }
-
-        /**
-         * Sets the number of trees in the random forest.
-         * @param ntrees the number of trees.
-         */
-        public Trainer setNumTrees(int ntrees) {
-            if (ntrees < 1) {
-                throw new IllegalArgumentException("Invalid number of trees: " + ntrees);
-            }
-
-            this.ntrees = ntrees;
-            return this;
-        }
-
-        /**
-         * Sets the number of random selected features for splitting.
-         * @param mtry the number of random selected features to be used to determine
-         * the decision at a node of the tree. floor(sqrt(p)) seems to give
-         * generally good performance, where p is the number of variables.
-         */
-        public Trainer setNumRandomFeatures(int mtry) {
-            if (mtry < 1) {
-                throw new IllegalArgumentException("Invalid number of random selected features for splitting: " + mtry);
-            }
-
-            this.mtry = mtry;
-            return this;
-        }
-
-        /**
-         * Sets the maximum number of leaf nodes.
-         * @param maxNodes the maximum number of leaf nodes.
-         */
-        public Trainer setMaxNodes(int maxNodes) {
-            if (maxNodes < 2) {
-                throw new IllegalArgumentException("Invalid minimum size of leaf nodes: " + maxNodes);
-            }
-
-            this.maxNodes = maxNodes;
-            return this;
-        }
-
-        /**
-         * Sets the minimum size of leaf nodes.
-         * @param nodeSize the number of instances in a node below which the tree will not split.
-         */
-        public Trainer setNodeSize(int nodeSize) {
-            if (nodeSize < 1) {
-                throw new IllegalArgumentException("Invalid minimum size of leaf nodes: " + nodeSize);
-            }
-
-            this.nodeSize = nodeSize;
-            return this;
-        }
-
-        /**
-         * Sets the sampling rate.
-         * @param subsample the sampling rate.
-         */
-        public Trainer setSamplingRates(double subsample) {
-            if (subsample <= 0 || subsample > 1) {
-                throw new IllegalArgumentException("Invalid sampling rating: " + subsample);
-            }
-
-            this.subsample = subsample;
-            return this;
-        }
-
-        @Override
-        public RandomForest train(double[][] x, int[] y) {
-            return new RandomForest(attributes, x, y, ntrees, maxNodes, nodeSize, mtry, subsample, rule, null);
-        }
-    }
-    
     /**
      * Trains a regression tree.
      */
@@ -301,7 +167,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         /**
          * Priors of the classes.
          */
-        int[] classWeight;
+        double[] classWeight;
         /**
          * The index of training values in ascending order. Note that only
          * numeric attributes will be sorted.
@@ -315,7 +181,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         /**
          * Constructor.
          */
-        TrainingTask(Attribute[] attributes, double[][] x, int[] y, int maxNodes, int nodeSize, int mtry, double subsample, DecisionTree.SplitRule rule, int[] classWeight, int[][] order, int[][] prediction) {
+        TrainingTask(Attribute[] attributes, double[][] x, int[] y, int maxNodes, int nodeSize, int mtry, double subsample, DecisionTree.SplitRule rule, double[] classWeight, int[][] order, int[][] prediction) {
             this.attributes = attributes;
             this.x = x;
             this.y = y;
@@ -351,7 +217,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
 
                     // We used to do up sampling.
                     // But we switch to down sampling, which seems has better performance.
-                    int size = nj / classWeight[l];
+                    long size = Math.round(nj * classWeight[l]);
                     for (int i = 0; i < size; i++) {
                         int xi = Math.randomInt(nj);
                         samples[cj.get(xi)] += 1; //classWeight[l];
@@ -372,7 +238,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
                 }
 
                 for (int l = 0; l < k; l++) {
-                    int subj = (int) Math.round(nc[l] * subsample / classWeight[l]);
+                    int subj = (int) Math.round(nc[l] * subsample * classWeight[l]);
                     int count = 0;
                     for (int i = 0; i < n && count < subj; i++) {
                         int xi = perm[i];
@@ -385,24 +251,30 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
             }
 
             DecisionTree tree = new DecisionTree(attributes, x, y, maxNodes, nodeSize, mtry, rule, samples, order);
+            int Nsamples = ((Long) Arrays.stream(samples).filter(s -> s == 0).count()).intValue();
+            double[] yhat = new double[Nsamples];
+            int[] target = new int[Nsamples];
 
             // estimate OOB error
             int oob = 0;
-            int correct = 0;
+            double correct = 0;
             for (int i = 0; i < n; i++) {
                 if (samples[i] == 0) {
-                    oob++;
                     int p = tree.predict(x[i]);
-                    if (p == y[i]) correct++;
+                    yhat[oob] = p;
+                    target[oob] = y[i];
+                    if (p == y[i])
+                        correct++; //correct += 1/(baselines[Arrays.binarySearch(labels, ((Integer)y[i]).intValue())]* labels.length);
                     synchronized (prediction[i]) {
                         prediction[i][p]++;
                     }
+                    oob++;
                 }
             }
-
-            double accuracy = 1.0;
+            double accuracy = AUC.measure(target, yhat);
+            // double accuracy = 1.0;
             if (oob != 0) {
-                accuracy = (double) correct / oob;
+                // accuracy = correct / oob; // AUC.measure(y, predicted2); //
                 logger.info("Random forest tree OOB size: {}, accuracy: {}", oob, String.format("%.2f%%", 100 * accuracy));
             } else {
                 logger.error("Random forest has a tree trained without OOB samples.");
@@ -415,8 +287,8 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
     /**
      * Constructor. Learns a random forest for classification.
      *
-     * @param x the training instances. 
-     * @param y the response variable.
+     * @param x      the training instances.
+     * @param y      the response variable.
      * @param ntrees the number of trees.
      */
     public RandomForest(double[][] x, int[] y, int ntrees) {
@@ -426,12 +298,12 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
     /**
      * Constructor. Learns a random forest for classification.
      *
-     * @param x the training instances. 
-     * @param y the response variable.
+     * @param x      the training instances.
+     * @param y      the response variable.
      * @param ntrees the number of trees.
-     * @param mtry the number of random selected features to be used to determine
-     * the decision at a node of the tree. floor(sqrt(dim)) seems to give
-     * generally good performance, where dim is the number of variables.
+     * @param mtry   the number of random selected features to be used to determine
+     *               the decision at a node of the tree. floor(sqrt(dim)) seems to give
+     *               generally good performance, where dim is the number of variables.
      */
     public RandomForest(double[][] x, int[] y, int ntrees, int mtry) {
         this(null, x, y, ntrees, mtry);
@@ -441,9 +313,9 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a random forest for classification.
      *
      * @param attributes the attribute properties.
-     * @param x the training instances. 
-     * @param y the response variable.
-     * @param ntrees the number of trees.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param ntrees     the number of trees.
      */
     public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees) {
         this(attributes, x, y, ntrees, (int) Math.floor(Math.sqrt(x[0].length)));
@@ -453,12 +325,12 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a random forest for classification.
      *
      * @param attributes the attribute properties.
-     * @param x the training instances.
-     * @param y the response variable.
-     * @param ntrees the number of trees.
-     * @param mtry the number of random selected features to be used to determine
-     * the decision at a node of the tree. floor(sqrt(dim)) seems to give
-     * generally good performance, where dim is the number of variables.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param ntrees     the number of trees.
+     * @param mtry       the number of random selected features to be used to determine
+     *                   the decision at a node of the tree. floor(sqrt(dim)) seems to give
+     *                   generally good performance, where dim is the number of variables.
      */
     public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees, int mtry) {
         this(attributes, x, y, ntrees, 100, 5, mtry, 1.0);
@@ -469,16 +341,16 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a random forest for classification.
      *
      * @param attributes the attribute properties.
-     * @param x the training instances.
-     * @param y the response variable.
-     * @param ntrees the number of trees.
-     * @param mtry the number of random selected features to be used to determine
-     * the decision at a node of the tree. floor(sqrt(dim)) seems to give
-     * generally good performance, where dim is the number of variables.
-     * @param nodeSize the minimum size of leaf nodes.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param subsample the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
-     *                  sampling without replacement.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param ntrees     the number of trees.
+     * @param mtry       the number of random selected features to be used to determine
+     *                   the decision at a node of the tree. floor(sqrt(dim)) seems to give
+     *                   generally good performance, where dim is the number of variables.
+     * @param nodeSize   the minimum size of leaf nodes.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
+     * @param subsample  the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
+     *                   sampling without replacement.
      */
     public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees, int maxNodes, int nodeSize, int mtry, double subsample) {
         this(attributes, x, y, ntrees, maxNodes, nodeSize, mtry, subsample, DecisionTree.SplitRule.GINI);
@@ -488,17 +360,17 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      * Constructor. Learns a random forest for classification.
      *
      * @param attributes the attribute properties.
-     * @param x the training instances.
-     * @param y the response variable.
-     * @param ntrees the number of trees.
-     * @param mtry the number of random selected features to be used to determine
-     * the decision at a node of the tree. floor(sqrt(dim)) seems to give
-     * generally good performance, where dim is the number of variables.
-     * @param nodeSize the minimum size of leaf nodes.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param subsample the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
-     *                  sampling without replacement.
-     * @param rule Decision tree split rule.
+     * @param x          the training instances.
+     * @param y          the response variable.
+     * @param ntrees     the number of trees.
+     * @param mtry       the number of random selected features to be used to determine
+     *                   the decision at a node of the tree. floor(sqrt(dim)) seems to give
+     *                   generally good performance, where dim is the number of variables.
+     * @param nodeSize   the minimum size of leaf nodes.
+     * @param maxNodes   the maximum number of leaf nodes in the tree.
+     * @param subsample  the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
+     *                   sampling without replacement.
+     * @param rule       Decision tree split rule.
      */
     public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees, int maxNodes, int nodeSize, int mtry, double subsample, DecisionTree.SplitRule rule) {
         this(attributes, x, y, ntrees, maxNodes, nodeSize, mtry, subsample, rule, null);
@@ -507,18 +379,18 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
     /**
      * Constructor. Learns a random forest for classification.
      *
-     * @param attributes the attribute properties.
-     * @param x the training instances.
-     * @param y the response variable.
-     * @param ntrees the number of trees.
-     * @param mtry the number of random selected features to be used to determine
-     * the decision at a node of the tree. floor(sqrt(dim)) seems to give
-     * generally good performance, where dim is the number of variables.
-     * @param nodeSize the minimum size of leaf nodes.
-     * @param maxNodes the maximum number of leaf nodes in the tree.
-     * @param subsample the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
-     *                  sampling without replacement.
-     * @param rule Decision tree split rule.
+     * @param attributes  the attribute properties.
+     * @param x           the training instances.
+     * @param y           the response variable.
+     * @param ntrees      the number of trees.
+     * @param mtry        the number of random selected features to be used to determine
+     *                    the decision at a node of the tree. floor(sqrt(dim)) seems to give
+     *                    generally good performance, where dim is the number of variables.
+     * @param nodeSize    the minimum size of leaf nodes.
+     * @param maxNodes    the maximum number of leaf nodes in the tree.
+     * @param subsample   the sampling rate for training tree. 1.0 means sampling with replacement. < 1.0 means
+     *                    sampling without replacement.
+     * @param rule        Decision tree split rule.
      * @param classWeight Priors of the classes. The weight of each class
      *                    is roughly the ratio of samples in each class.
      *                    For example, if
@@ -527,7 +399,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
      *                    (assuming label 0 is of negative, label 1 is of
      *                    positive).
      */
-    public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees, int maxNodes, int nodeSize, int mtry, double subsample, DecisionTree.SplitRule rule, int[] classWeight) {
+    public RandomForest(Attribute[] attributes, double[][] x, int[] y, int ntrees, int maxNodes, int nodeSize, int mtry, double subsample, DecisionTree.SplitRule rule, double[] classWeight) {
         if (x.length != y.length) {
             throw new IllegalArgumentException(String.format("The sizes of X and Y don't match: %d != %d", x.length, y.length));
         }
@@ -553,24 +425,31 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         }
 
         // class label set.
-        int[] labels = Math.unique(y);
+        this.labels = Math.unique(y);
         Arrays.sort(labels);
-        
+        this.attributes = attributes;
+        this.maxNodes = maxNodes;
+        this.nodeSize = nodeSize;
+        this.mtry = mtry;
+        this.subsample = subsample;
+        this.rule = rule;
+        this.classWeight = classWeight;
+
         for (int i = 0; i < labels.length; i++) {
             if (labels[i] < 0) {
-                throw new IllegalArgumentException("Negative class label: " + labels[i]); 
+                throw new IllegalArgumentException("Negative class label: " + labels[i]);
             }
-            
-            if (i > 0 && labels[i] - labels[i-1] > 1) {
-                throw new IllegalArgumentException("Missing class: " + labels[i]+1);                 
+
+            if (i > 0 && labels[i] - labels[i - 1] > 1) {
+                throw new IllegalArgumentException("Missing class: " + labels[i] + 1);
             }
         }
 
         k = labels.length;
         if (k < 2) {
-            throw new IllegalArgumentException("Only one class.");            
+            throw new IllegalArgumentException("Only one class.");
         }
-        
+
         if (attributes == null) {
             int p = x[0].length;
             attributes = new Attribute[p];
@@ -580,8 +459,12 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         }
 
         if (classWeight == null) {
-            classWeight = new int[k];
-            for (int i = 0; i < k; i++) classWeight[i] = 1;
+            double[] classProbs = DecisionTree.getClassProbs(y, labels);
+            classWeight = new double[k];
+            for (int i = 0; i < k; i++) {
+                // classWeight[i] = 1;
+                classWeight[i] = 1 / (labels.length * classProbs[i]);
+            }
         }
 
         int n = x.length;
@@ -591,7 +474,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         for (int i = 0; i < ntrees; i++) {
             tasks.add(new TrainingTask(attributes, x, y, maxNodes, nodeSize, mtry, subsample, rule, classWeight, order, prediction));
         }
-        
+
         try {
             trees = MulticoreExecutor.run(tasks);
         } catch (Exception ex) {
@@ -602,7 +485,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
                 trees.add(tasks.get(i).call());
             }
         }
-        
+
         int m = 0;
         for (int i = 0; i < n; i++) {
             int pred = Math.whichMax(prediction[i]);
@@ -617,7 +500,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         if (m > 0) {
             error /= m;
         }
-        
+
         importance = new double[attributes.length];
         for (Tree tree : trees) {
             double[] imp = tree.tree.importance();
@@ -627,17 +510,65 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         }
     }
 
+
+    /**
+     * prune ntree most useless trees
+     */
+    public void prune(int ntrees) {
+        HashSet<Integer> modelSet = new HashSet<>();
+        for (int i = 0; i < trees.size(); i++) {
+            modelSet.add(i);
+        }
+        double[] weights = new double[k];
+        for (int i = 0; i < trees.size(); i++) {
+            weights[i] = this.trees.get(i).weight;
+        }
+        for (int i = 0; i < ntrees; i++) {
+            double min = Math.min(weights);
+            modelSet.remove(Arrays.asList(weights).indexOf(min));
+        }
+        List<Tree> model = new ArrayList<>(ntrees);
+        for (int i : modelSet) {
+            model.add(this.trees.get(i));
+        }
+        this.trees = model;
+    }
+
+    public void sampleTrees(int ntrees) {
+        boolean oversample = ntrees >= trees.size();
+        List<Tree> model = new ArrayList<>(ntrees);
+        HashSet<Integer> modelSet = new HashSet<>();
+        Random rn = new Random();
+        while (modelSet.size() < ntrees) {
+            int m = rn.nextInt(trees.size());
+            if (oversample || !modelSet.contains(m)) {
+                model.add(this.trees.get(m));
+                modelSet.add(m);
+            }
+        }
+        this.trees = model;
+    }
+
+    public void addTrees(double[][] x, int[] y, int newTrees) throws Exception {
+        int ntrees = trees.size();
+        RandomForest forest = new RandomForest(attributes, x, y, newTrees, maxNodes, nodeSize, mtry, subsample, rule, classWeight);
+        Tree[] trees = forest.getForest();
+        List<Tree> model = new ArrayList<>(ntrees);
+        model.addAll(Arrays.asList(trees));
+        this.trees = model;
+    }
+
     /**
      * Returns the out-of-bag estimation of error rate. The OOB estimate is
      * quite accurate given that enough trees have been grown. Otherwise the
      * OOB estimate can bias upward.
-     * 
+     *
      * @return the out-of-bag estimation of error rate
      */
     public double error() {
         return error;
     }
-    
+
     /**
      * Returns the variable importance. Every time a split of a node is made
      * on variable the (GINI, information gain, etc.) impurity criterion for
@@ -651,29 +582,29 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
     public double[] importance() {
         return importance;
     }
-    
+
     /**
      * Returns the number of trees in the model.
-     * 
-     * @return the number of trees in the model 
+     *
+     * @return the number of trees in the model
      */
     public int size() {
         return trees.size();
     }
-    
+
     /**
      * Trims the tree model set to a smaller size in case of over-fitting.
      * Or if extra decision trees in the model don't improve the performance,
      * we may remove them to reduce the model size and also improve the speed of
      * prediction.
-     * 
+     *
      * @param ntrees the new (smaller) size of tree model set.
      */
     public void trim(int ntrees) {
         if (ntrees > trees.size()) {
             throw new IllegalArgumentException("The new model size is larger than the current size.");
         }
-        
+
         if (ntrees <= 0) {
             throw new IllegalArgumentException("Invalid new model size: " + ntrees);
         }
@@ -682,21 +613,23 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         for (int i = 0; i < ntrees; i++) {
             model.add(trees.get(i));
         }
-        
+
         trees = model;
     }
-    
+
     @Override
     public int predict(double[] x) {
-        int[] y = new int[k];
-        
+        double[] y = new double[k];
+
         for (Tree tree : trees) {
-            y[tree.tree.predict(x)]++;
+            if (!Double.isNaN(tree.weight)) {
+                y[tree.tree.predict(x)] += tree.weight;
+            }
         }
-        
+
         return Math.whichMax(y);
     }
-    
+
     @Override
     public int predict(double[] x, double[] posteriori) {
         if (posteriori.length != k) {
@@ -716,11 +649,11 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
 
         Math.unitize1(posteriori);
         return Math.whichMax(y);
-    }    
-    
+    }
+
     /**
      * Test the model on a validation dataset.
-     * 
+     *
      * @param x the test data set.
      * @param y the test data response values.
      * @return accuracies with first 1, 2, ..., decision trees.
@@ -734,7 +667,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         int[][] prediction = new int[n][k];
 
         Accuracy measure = new Accuracy();
-        
+
         for (int i = 0; i < T; i++) {
             for (int j = 0; j < n; j++) {
                 prediction[j][trees.get(i).tree.predict(x[j])]++;
@@ -746,12 +679,12 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
 
         return accuracy;
     }
-    
+
     /**
      * Test the model on a validation dataset.
-     * 
-     * @param x the test data set.
-     * @param y the test data labels.
+     *
+     * @param x        the test data set.
+     * @param y        the test data labels.
      * @param measures the performance measures of classification.
      * @return performance measures with first 1, 2, ..., decision trees.
      */
@@ -779,6 +712,17 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
 
     /**
      * Returns the decision trees.
+     */
+    public Tree[] getForest() {
+        Tree[] forest = new Tree[trees.size()];
+        for (int i = 0; i < forest.length; i++)
+            forest[i] = trees.get(i);
+
+        return forest;
+    }
+
+    /**
+     * Returns the forest.
      */
     public DecisionTree[] getTrees() {
         DecisionTree[] forest = new DecisionTree[trees.size()];
