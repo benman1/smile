@@ -19,6 +19,8 @@ package smile.shell
 import ammonite.ops.Path
 import ammonite.runtime.Storage
 
+import scalaz.BuildInfo
+
 /** Ammonite REPL based shell.
   *
   * @author Haifeng Li
@@ -40,7 +42,7 @@ object AmmoniteREPL {
        |
        |  Welcome to Smile Shell; enter 'help<RETURN>' for the list of commands.
        |  Type "exit<RETURN>" to leave the Smile Shell
-       |  Version ${BuildInfo.version}, Scala ${BuildInfo.scalaVersion}, SBT ${BuildInfo.sbtVersion}, Built at ${BuildInfo.builtAtString}
+       |  Version ${BuildInfo.version}, Scala ${BuildInfo.scalaVersion}
        |===============================================================================
      """.stripMargin
 

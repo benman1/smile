@@ -17,6 +17,7 @@
 package smile.shell
 
 import scala.tools.nsc.interpreter.ILoop
+import scalaz.BuildInfo
 
 /** Scala REPL based shell.
   *
@@ -38,7 +39,7 @@ class ScalaREPL extends ILoop  {
        |
        |  Welcome to Smile Shell; enter 'help<RETURN>' for the list of commands.
        |  Type ":quit<RETURN>" to leave the Smile Shell
-       |  Version ${BuildInfo.version}, Scala ${BuildInfo.scalaVersion}, SBT ${BuildInfo.sbtVersion}, Built at ${BuildInfo.builtAtString}
+       |  Version ${BuildInfo.version}, Scala ${BuildInfo.scalaVersion}
        |===============================================================================
      """.stripMargin
   )
