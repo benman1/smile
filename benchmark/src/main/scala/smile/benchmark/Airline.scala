@@ -74,7 +74,7 @@ object Airline {
     println(s"test  data positive : negative =  $testpos : ${testy.length - testpos}")
 
     // The data is unbalanced. Large positive class weight of should improve sensitivity.
-    val classWeight = Array(4, 1)
+    val classWeight = Array[Double](1/4, 1)
 
     // Random Forest
     val forest = test2soft(x, y, testx, testy) { (x, y) =>

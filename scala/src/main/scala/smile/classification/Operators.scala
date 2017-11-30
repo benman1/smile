@@ -639,7 +639,7 @@ trait Operators {
     *
     * @return Random forest classification model.
     */
-  def randomForest(x: Array[Array[Double]], y: Array[Int], attributes: Array[Attribute] = null, ntrees: Int = 500, maxNodes: Int = -1, nodeSize: Int = 1, mtry: Int = -1, subsample: Double = 1.0, splitRule: DecisionTree.SplitRule = DecisionTree.SplitRule.GINI, classWeight: Array[Int] = null): RandomForest = {
+  def randomForest(x: Array[Array[Double]], y: Array[Int], attributes: Array[Attribute] = null, ntrees: Int = 500, maxNodes: Int = -1, nodeSize: Int = 1, mtry: Int = -1, subsample: Double = 1.0, splitRule: DecisionTree.SplitRule = DecisionTree.SplitRule.GINI, classWeight: Array[Double] = null): RandomForest = {
     val attr = Option(attributes).getOrElse(numericAttributes(x(0).length))
 
     val p = x(0).length
@@ -649,7 +649,7 @@ trait Operators {
     val j = if (maxNodes <= 1) x.length / nodeSize else maxNodes
 
     val k = Math.max(y) + 1
-    val weight = if (classWeight == null) Array.fill[Int](k)(1) else classWeight
+    val weight = if (classWeight == null) Array.fill[Double](k)(1.0) else classWeight
 
     time {
       new RandomForest(attr, x, y, ntrees, j, nodeSize, m, subsample, splitRule, weight)
