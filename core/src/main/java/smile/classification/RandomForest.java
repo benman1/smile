@@ -617,6 +617,11 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         trees = model;
     }
 
+    /**
+     * Returns predictions
+     *
+     * @param x an array of double to predict
+     */
     @Override
     public int predict(double[] x) {
         double[] y = new double[k];
@@ -630,12 +635,17 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         return Math.whichMax(y);
     }
 
+    /**
+     * Returns a predictions and an array of class probabilities
+     * based on softmax-squashed aggregated tree predictions.
+     *
+     * @param x an array of double
+     */
     @Override
     public int predict(double[] x, double[] posteriori) {
         if (posteriori.length != k) {
             throw new IllegalArgumentException(String.format("Invalid posteriori vector size: %d, expected: %d", posteriori.length, k));
         }
-
         Arrays.fill(posteriori, 0.0);
 
         int[] y = new int[k];
@@ -643,11 +653,13 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         for (Tree tree : trees) {
             y[tree.tree.predict(x, pos)]++;
             for (int i = 0; i < k; i++) {
-                posteriori[i] += tree.weight * pos[i];
+                if (!Double.isNaN(tree.weight)) {
+                    posteriori[i] += tree.weight * pos[i];
+                }
             }
         }
-
         Math.unitize1(posteriori);
+        // posteriori = SmileUtils.softmax(posteriori); // Math.unitize1(posteriori);
         return Math.whichMax(y);
     }
 
