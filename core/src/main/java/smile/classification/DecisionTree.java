@@ -264,6 +264,8 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
 
         WEIGHTED_ENTROPY,
 
+        NORM_ENTROPY,
+
         WEIGHTED_CLASSIFICATION_ERROR
     }
 
@@ -770,6 +772,15 @@ public class DecisionTree implements SoftClassifier<double[]>, Serializable {
                     if (count[i] > 0) {
                         double p = (double) count[i] / n;
                         impurity -= p * Math.log2(p);
+                    }
+                }
+                break;
+
+            case NORM_ENTROPY:
+                for (int i = 0; i < count.length; i++) {
+                    if (count[i] > 0) {
+                        double p = (double) count[i] / n;
+                        impurity -= p * Math.log2(p) / Math.log2(n);
                     }
                 }
                 break;

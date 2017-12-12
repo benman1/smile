@@ -3,14 +3,13 @@ name := "smile"
 import com.typesafe.sbt.pgp.PgpKeys.{useGpg, publishSigned, publishLocalSigned}
 
 lazy val commonSettings = Seq(
-  organization := "com.github.haifengl",
-  organizationName := "Haifeng Li",
-  organizationHomepage := Some(url("http://haifengl.github.io/")),
-  version := "1.5.0",
+  organization := "com.myjar",
+  organizationName := "Myjar Ltd",
+  organizationHomepage := Some(url("http://myjar.com/")),
+  version := "1.5.18-SNAPSHOT",
   javacOptions in (Compile, compile) ++= Seq("-source", "1.8", "-target", "1.8", "-encoding", "UTF8", "-g:lines,vars,source", "-Xlint:unchecked"),
   javacOptions in (Compile, doc) ++= Seq("-Xdoclint:none"),
   javaOptions in test += "-Dsmile.threads=1",
-  libraryDependencies += "org.slf4j" % "slf4j-simple" % "1.7.25" % "test",
   libraryDependencies += "junit" % "junit" % "4.12" % "test",
   libraryDependencies += "com.novocode" % "junit-interface" % "0.11" % "test",
   scalaVersion := "2.12.4",
@@ -19,19 +18,20 @@ lazy val commonSettings = Seq(
   parallelExecution in Test := false,
   crossPaths := false,
   autoScalaLibrary := false,
+  credentials += Credentials(Path.userHome / ".ivy2" / ".archiva.credentials.release"),
+  credentials += Credentials(Path.userHome / ".ivy2" / ".archiva.credentials.snapshots"),
   publishTo := {
-    val nexus = "https://oss.sonatype.org/"
-    if (isSnapshot.value)
-      Some("snapshots" at nexus + "content/repositories/snapshots")
+    val archiva = "http://tln-risk-jenkins-01.dev.myjar.com:8080/repository/"
+    if (version.value.trim.endsWith("SNAPSHOT"))
+      Some("snapshots" at archiva + "snapshots")
     else
-      Some("releases"  at nexus + "service/local/staging/deploy/maven2")
+      Some("releases"  at archiva + "internal")
   },
   publishArtifact in Test := false ,
   publishMavenStyle := true,
   useGpg := true,
   pomIncludeRepository := { _ => false },
   pomExtra := (
-    <url>https://github.com/haifengl/smile</url>
       <licenses>
         <license>
           <name>Apache License, Version 2.0</name>
@@ -39,15 +39,10 @@ lazy val commonSettings = Seq(
           <distribution>repo</distribution>
         </license>
       </licenses>
-      <scm>
-        <url>git@github.com:haifengl/smile.git</url>
-        <connection>scm:git:git@github.com:haifengl/smile.git</connection>
-      </scm>
-      <developers>
+       <developers>
         <developer>
           <id>haifengl</id>
           <name>Haifeng Li</name>
-          <url>http://haifengl.github.io/</url>
         </developer>
       </developers>
   )

@@ -274,12 +274,19 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
             double accuracy = AUC.measure(target, yhat);
             // double accuracy = 1.0;
             if (oob != 0) {
-                // accuracy = correct / oob; // AUC.measure(y, predicted2); //
-                logger.info("Random forest tree OOB size: {}, accuracy: {}", oob, String.format("%.2f%%", 100 * accuracy));
+                // accuracy = correct / oob;
+                logger.info(
+                        "Random forest tree OOB size: {}, accuracy: {}",
+                        oob, String.format("%.2f%%",
+                                100 * accuracy)
+                );
             } else {
                 logger.error("Random forest has a tree trained without OOB samples.");
             }
 
+            if(Double.isNaN(accuracy)){
+                accuracy = Math.ulp(1.0);
+            }
             return new Tree(tree, accuracy);
         }
     }
@@ -519,7 +526,7 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         for (int i = 0; i < trees.size(); i++) {
             modelSet.add(i);
         }
-        double[] weights = new double[k];
+        double[] weights = new double[trees.size()];
         for (int i = 0; i < trees.size(); i++) {
             weights[i] = this.trees.get(i).weight;
         }
@@ -550,12 +557,11 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
     }
 
     public void addTrees(double[][] x, int[] y, int newTrees) throws Exception {
-        int ntrees = trees.size();
-        RandomForest forest = new RandomForest(attributes, x, y, newTrees, maxNodes, nodeSize, mtry, subsample, rule, classWeight);
+        RandomForest forest = new RandomForest(
+                attributes, x, y, newTrees, maxNodes, nodeSize, mtry, subsample, rule, classWeight
+        );
         Tree[] trees = forest.getForest();
-        List<Tree> model = new ArrayList<>(ntrees);
-        model.addAll(Arrays.asList(trees));
-        this.trees = model;
+        this.trees.addAll(Arrays.asList(trees));
     }
 
     /**
@@ -663,6 +669,12 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
         return Math.whichMax(y);
     }
 
+    public double[] classProbs(double[] x) {
+       double[] posteriori = new double[k];
+        predict(x, posteriori);
+        return posteriori;
+    }
+
     /**
      * Test the model on a validation dataset.
      *
@@ -742,5 +754,13 @@ public class RandomForest implements SoftClassifier<double[]>, Serializable {
             forest[i] = trees.get(i).tree;
 
         return forest;
+    }
+
+    /**
+     * Returns the number of trees.
+     * (This is important for pruning and adding new trees)
+     */
+    public int getNTrees(){
+        return trees.size();
     }
 }
